@@ -13,7 +13,8 @@ public class GithubLister : EditorWindow
     {
         public delegate void RequestFinished(Request req);
 
-        public string targetAddress;
+        //set to -1 if a generic request or to the index of the repo which started that request (for downloading)
+        public int targetRepo;
         public UnityWebRequest request;
         public RequestFinished callback;
     }
@@ -32,11 +33,8 @@ public class GithubLister : EditorWindow
     }
 
 
-
-    public List<string> reposAddresses;
-
     protected List<Request> pendingRequests = new List<Request>();
-    protected Dictionary<string, RepoData> _repoData = new Dictionary<string, RepoData>();
+    protected List<RepoData> _repoData = new List<RepoData>();
 
     //=================
 
@@ -57,17 +55,7 @@ public class GithubLister : EditorWindow
     {
         cacheFilePath = Application.dataPath + "/../Library/GithubDownloaderCache";
 
-        reposAddresses = new List<string>();
-
-        reposAddresses.Add("UnityGuillaume/Prototypes");
-        reposAddresses.Add("UnityGuillaume/packagedesigner");
-        reposAddresses.Add("UnityGuillaume/ImporterRule");
-
-        if (!DeserializeRepoData())
-        {//should be change to doing it everytime, but checking against the etag of the repo
-         //but conditional request don't seem to avoid reducing github request limit so for now just do it if the file don't exist
-            RequestRepoData();
-        }
+        DeserializeRepoData();
     }
 
     private void OnDisable()
@@ -77,8 +65,6 @@ public class GithubLister : EditorWindow
             pendingRequests[0].request.Abort();
             pendingRequests.RemoveAt(0);
         }
-
-        SerializeRepoData();
     }
 
     private void Update()
@@ -95,9 +81,9 @@ public class GithubLister : EditorWindow
                 {
                     pendingRequests[i].callback(pendingRequests[i]);
 
-                    if(_repoData[pendingRequests[i].targetAddress].currentDownLoadRequest == pendingRequests[i])
+                    if(_repoData[pendingRequests[i].targetRepo].currentDownLoadRequest == pendingRequests[i])
                     {
-                        _repoData[pendingRequests[i].targetAddress].currentDownLoadRequest = null;
+                        _repoData[pendingRequests[i].targetRepo].currentDownLoadRequest = null;
                     }
                 }
 
@@ -109,16 +95,18 @@ public class GithubLister : EditorWindow
 
     private void OnGUI()
     {
-        foreach (var val in _repoData.Values)
+        for (int i = 0; i < _repoData.Count; ++i)
         {
+            RepoData val = _repoData[i];
+
             GUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(val.address, EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(val.name, EditorStyles.boldLabel);
 
             if (val.currentDownLoadRequest == null)
             {
                 if (GUILayout.Button("Import", GUILayout.Width(64)))
                 {
-                    ImportRepo(val);
+                    ImportRepo(i);
                 }
             }
             else
@@ -137,40 +125,25 @@ public class GithubLister : EditorWindow
         }
     }
 
-    void ImportRepo(RepoData repo)
+    void ImportRepo(int index)
     {
-        string correctedUrl = repo.archiveURL.Replace("{archive_format}", "zipball");
+        string correctedUrl = _repoData[index].archiveURL.Replace("{archive_format}", "zipball");
         correctedUrl = correctedUrl.Replace("{/ref}", "");
 
         Request req = new Request();
         req.request = UnityWebRequest.Get(correctedUrl);
         req.callback = RetrievePackage;
-        req.targetAddress = repo.address;
+        req.targetRepo = index;
 
         req.request.Send();
 
-        repo.currentDownLoadRequest = req;
+        _repoData[index].currentDownLoadRequest = req;
         pendingRequests.Add(req);
-    }
-
-    void RequestRepoData()
-    {
-        for (int i = 0; i < reposAddresses.Count; ++i)
-        {
-            Request req = new Request();
-            req.targetAddress = reposAddresses[i];
-            req.request = UnityWebRequest.Get("https://api.github.com/repos/" + reposAddresses[i]);
-            //req.request.SetRequestHeader("If-Modified-Since", System.DateTime.UtcNow.ToString("ddd, dd MMM yyyy HH:mm:ss 'UTC'"));
-            req.request.Send();
-            req.callback = RetrievedRepoData;
-
-            pendingRequests.Add(req);
-        }
     }
 
     void RetrievePackage(Request req)
     {
-        string baseFolder = Application.dataPath + "/" + _repoData[req.targetAddress].name;
+        string baseFolder = Application.dataPath + "/" + _repoData[req.targetRepo].name;
 
         if(!Directory.Exists(baseFolder))
         {
@@ -227,85 +200,34 @@ public class GithubLister : EditorWindow
         }
     }
 
-    public void RetrievedRepoData(Request req)
-    {
-        var data = JSON.Parse(req.request.downloadHandler.text);
-
-        RepoData repoData = new RepoData();
-        repoData.address = req.targetAddress;
-        repoData.name = data["name"] == null ? "" : ((JSONString)data["name"]);
-        repoData.description = data["description"] == null ? "" : ((JSONString)data["description"]);
-        repoData.archiveURL = data["archive_url"] == null ? "" : ((JSONString)data["archive_url"]);
-        repoData.etag = req.request.GetResponseHeader("ETag");
-
-        _repoData[repoData.address] = repoData;
-    }
-
-    void RetriedRateLimit(UnityWebRequest req)
-    {
-        Debug.Log(req.downloadHandler.text);
-    }
-
-
     //-------------------
 
     string cacheFilePath;
 
-    void SerializeRepoData()
-    {
-        FileStream file = new FileStream(cacheFilePath, FileMode.Create);
-        BinaryWriter writer = new BinaryWriter(file);
-
-        writer.Write(RepoData.version);
-        writer.Write(_repoData.Count);
-        foreach (var entry in _repoData.Values)
-        {
-            writer.Write(entry.etag);
-            writer.Write(entry.address);
-            writer.Write(entry.name);
-            writer.Write(entry.archiveURL);
-            writer.Write(entry.description);
-        }
-
-        writer.Close();
-        file.Close();
-    }
-
-    bool DeserializeRepoData()
+    void DeserializeRepoData()
     {
         if (!File.Exists(cacheFilePath))
         {
-            return false;
+            return;
         }
 
-        FileStream file = new FileStream(cacheFilePath, FileMode.Open);
-        BinaryReader reader = new BinaryReader(file);
+        var data = JSON.Parse(File.ReadAllText(cacheFilePath));
 
-        int ver = reader.ReadInt32();
-        if (ver != RepoData.version)
+        foreach(var c in data.Children)
         {
-            reader.Close();
-            file.Close();
-            return false;
+            if(c.IsArray)
+            {
+                JSONArray a = c.AsArray;
+                for(int i = 0; i< a.Count; ++i)
+                {
+                    RepoData repData = new RepoData();
+                    repData.name = a[i]["name"];
+                    repData.description = a[i]["desc"];
+                    repData.archiveURL = a[i]["download"];
+
+                    _repoData.Add(repData);
+                }
+            }
         }
-
-        int count = reader.ReadInt32();
-        for (int i = 0; i < count; ++i)
-        {
-            RepoData data = new RepoData();
-
-            data.etag = reader.ReadString();
-            data.address = reader.ReadString();
-            data.name = reader.ReadString();
-            data.archiveURL = reader.ReadString();
-            data.description = reader.ReadString();
-
-            _repoData[data.address] = data;
-        }
-
-        reader.Close();
-        file.Close();
-
-        return true;
     }
 }
