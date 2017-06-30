@@ -1,0 +1,9 @@
+Unity-Technologies/GameKit-2DPlatformer
+Unity-Technologies/ScriptableRenderLoop
+Unity-Technologies/VRSamples
+Unity-Technologies/2DRoguelike
+Unity-Technologies/DeLightingTool
+Unity-Technologies/NavMeshComponents
+UnityGuillaume/Prototypes
+UnityGuillaume/ImporterRule
+UnityGuillaume/PackageManager

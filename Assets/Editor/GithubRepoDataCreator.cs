@@ -27,6 +27,9 @@ public class GithubRepoDataCreator : EditorWindow
         public string description;
         public string archiveURL;
 
+        public string category;
+        public string iconeBase64Encoded;
+
         public Request currentDownLoadRequest = null;
     }
 
@@ -37,6 +40,8 @@ public class GithubRepoDataCreator : EditorWindow
 
     protected string _cacheFilePath = "";
     protected bool isLoading = false;
+
+    public string _id = null;
 
     [MenuItem("Github Tools/Generate")]
     static void Open()
@@ -49,22 +54,51 @@ public class GithubRepoDataCreator : EditorWindow
     {
         isLoading = false;
 
-        _cacheFilePath = Application.dataPath + "/../Library/GithubDownloaderCache";
+        _cacheFilePath = Application.dataPath + "/../GithubDownloaderCache.json";
 
         _reposList = new List<string>();
 
-        _reposList.Add("UnityGuillaume/Prototypes");
-        _reposList.Add("UnityGuillaume/packagedesigner");
-        _reposList.Add("UnityGuillaume/ImporterRule");
+        string[] repolistText = File.ReadAllText(Application.dataPath + "/ReposList.txt").Split(new string[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+        for(int i = 0; i < repolistText.Length; ++i)
+        {
+            if (repolistText[i] == "")
+                continue;
+
+            Debug.Log("Retrieving data from " + repolistText[i]);
+            _reposList.Add(repolistText[i]);
+        }
+
+        if(File.Exists(Application.dataPath + "/../login.txt"))
+        {
+            _id = File.ReadAllText(Application.dataPath + "/../login.txt");
+            Debug.Log("found id will use that " + _id);
+        }
 
         for (int i = 0; i < _reposList.Count; ++i)
         {
             Request req = new Request();
             req.targetAddress = _reposList[i];
             req.request = UnityWebRequest.Get("https://api.github.com/repos/" + _reposList[i]);
+
+            if(_id != null)
+                req.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
             //req.request.SetRequestHeader("If-Modified-Since", System.DateTime.UtcNow.ToString("ddd, dd MMM yyyy HH:mm:ss 'UTC'"));
-            req.request.Send();
             req.callback = RetrievedRepoData;
+            req.request.Send();
+
+            _pendingRequests.Add(req);
+
+            //try to retrieve package info if exist
+            req = new Request();
+            req.targetAddress = _reposList[i];
+            req.request = UnityWebRequest.Get("https://api.github.com/repos/" + _reposList[i] + "/contents/package.json");
+            req.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
+            req.callback = RetrievedPackageinfo;
+
+            if (_id != null)
+                req.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
+
+            req.request.Send();
 
             _pendingRequests.Add(req);
         }
@@ -83,18 +117,13 @@ public class GithubRepoDataCreator : EditorWindow
         {
             if (_pendingRequests[i].request.isDone)
             {
-                if (_pendingRequests[i].request.isError)
+                if (_pendingRequests[i].request.isNetworkError)
                 {
                     Debug.LogError(_pendingRequests[i].request.error);
                 }
                 else
                 {
                     _pendingRequests[i].callback(_pendingRequests[i]);
-
-                    if (_reposData[_pendingRequests[i].targetAddress].currentDownLoadRequest == _pendingRequests[i])
-                    {
-                        _reposData[_pendingRequests[i].targetAddress].currentDownLoadRequest = null;
-                    }
                 }
 
                 _pendingRequests.RemoveAt(i);
@@ -125,7 +154,9 @@ public class GithubRepoDataCreator : EditorWindow
 
             idwriter.WriteLine("\"{0}\" : \"{1}\",", "name", data.name);
             idwriter.WriteLine("\"{0}\" : \"{1}\",", "desc", data.description);
-            idwriter.WriteLine("\"{0}\" : \"{1}\"", "download", data.archiveURL);
+            idwriter.WriteLine("\"{0}\" : \"{1}\",", "download", data.archiveURL);
+            idwriter.WriteLine("\"{0}\" : \"{1}\",", "category", data.category == null? "" : data.category);
+            idwriter.WriteLine("\"{0}\" : \"{1}\"", "icone", data.iconeBase64Encoded == null ? "" : data.iconeBase64Encoded);
 
             idwriter.Indent -= 1;
 
@@ -147,13 +178,33 @@ public class GithubRepoDataCreator : EditorWindow
         stream.Close();
     }
 
+    string authenticate(string usernamepassword)
+    {
+        string auth = usernamepassword;
+        auth = System.Convert.ToBase64String(System.Text.Encoding.GetEncoding("ISO-8859-1").GetBytes(auth));
+        auth = "Basic " + auth;
+        return auth;
+    }
+
 
     // ==== request callback 
     public void RetrievedRepoData(Request req)
     {
+        if (req.request.responseCode == 404)
+            return;
+
         var data = JSON.Parse(req.request.downloadHandler.text);
 
-        RepoData repoData = new RepoData();
+        if (data["private"].AsBool)
+            return; //ignore any private repo
+
+        RepoData repoData = null;
+        if (!_reposData.TryGetValue(req.targetAddress, out repoData))
+        {
+            repoData = new RepoData();
+            _reposData[req.targetAddress] = repoData;
+        }
+
         repoData.address = req.targetAddress;
         repoData.name = data["name"] == null ? "" : ((JSONString)data["name"]);
         repoData.description = data["description"] == null ? "" : ((JSONString)data["description"]);
@@ -163,7 +214,53 @@ public class GithubRepoDataCreator : EditorWindow
         repoData.archiveURL = repoData.archiveURL.Replace("{/ref}", "");
 
         repoData.etag = req.request.GetResponseHeader("ETag");
+    }
 
-        _reposData[repoData.address] = repoData;
+    public void RetrievedPackageinfo(Request req)
+    {
+        if (req.request.responseCode == 404)
+            return;
+
+        var data = JSON.Parse(req.request.downloadHandler.text);
+
+        RepoData repoData = null;
+        if (!_reposData.TryGetValue(req.targetAddress, out repoData))
+        {
+            repoData = new RepoData();
+            _reposData[req.targetAddress] = repoData;
+        }
+
+        repoData.category = data["category"] == null ? "" : ((JSONString)data["category"]);
+
+        if (data["icone"] != null && ((JSONString)data["icone"]) != "")
+        {
+            Request iconeDL = new Request();
+            iconeDL.targetAddress = req.targetAddress;
+            iconeDL.request = UnityWebRequest.Get("https://api.github.com/repos/" + req.targetAddress + "/contents/" + data["icone"]);
+            iconeDL.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
+
+            if (_id != null)
+                iconeDL.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
+
+            iconeDL.callback = RetrievedIconeData;
+            iconeDL.request.Send();
+
+            _pendingRequests.Add(iconeDL);
+        }
+    }
+
+    void RetrievedIconeData(Request req)
+    {
+        if (req.request.responseCode == 404)
+            return;
+
+        RepoData repoData = null;
+        if (!_reposData.TryGetValue(req.targetAddress, out repoData))
+        {
+            repoData = new RepoData();
+            _reposData[req.targetAddress] = repoData;
+        }
+
+        repoData.iconeBase64Encoded = System.Convert.ToBase64String(req.request.downloadHandler.data);
     }
 }

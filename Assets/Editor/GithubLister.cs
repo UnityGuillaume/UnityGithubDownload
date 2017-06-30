@@ -29,12 +29,22 @@ public class GithubLister : EditorWindow
         public string description;
         public string archiveURL;
 
+        public string category;
+        public Texture2D icone;
+
         public Request currentDownLoadRequest = null;
     }
 
 
     protected List<Request> pendingRequests = new List<Request>();
     protected List<RepoData> _repoData = new List<RepoData>();
+
+    protected List<string> _categoryNames = new List<string>();
+    protected Dictionary<string, List<int>> _categories = new Dictionary<string, List<int>>();
+
+    protected int _currentIdx = 0;
+
+    protected Vector2 _scrollValue = Vector2.zero;
 
     //=================
 
@@ -43,7 +53,6 @@ public class GithubLister : EditorWindow
     {
         var win = GetWindow<GithubLister>();
 
-        win.maxSize = new Vector2(600, 600);
         win.Show();
 
         win.position = new Rect(100, 100, 600, 600);
@@ -53,9 +62,15 @@ public class GithubLister : EditorWindow
 
     private void OnEnable()
     {
-        cacheFilePath = Application.dataPath + "/../Library/GithubDownloaderCache";
+        cacheFilePath = Application.dataPath + "/../Library/GithubDownloaderCache.json";
 
-        DeserializeRepoData();
+        _categories = new Dictionary<string, List<int>>();
+        _categories["all"] = new List<int>();
+
+        _categoryNames = new List<string>();
+        _categoryNames.Add("all");
+
+        FindRepoData();
     }
 
     private void OnDisable()
@@ -73,7 +88,7 @@ public class GithubLister : EditorWindow
         {
             if (pendingRequests[i].request.isDone)
             {
-                if (pendingRequests[i].request.isError)
+                if (pendingRequests[i].request.isNetworkError)
                 {
                     Debug.LogError(pendingRequests[i].request.error);
                 }
@@ -95,18 +110,42 @@ public class GithubLister : EditorWindow
 
     private void OnGUI()
     {
-        for (int i = 0; i < _repoData.Count; ++i)
+        Color c = Handles.color;
+        Handles.color = new Color(0.3f, 0.3f, 0.3f, 0.6f);
+
+        GUILayout.BeginHorizontal();
+        GUILayout.BeginVertical(GUILayout.Width(128));
+
+        for (int i = 0; i < _categoryNames.Count; ++i)
         {
-            RepoData val = _repoData[i];
+            GUI.enabled = !(i == _currentIdx);
+            if (GUILayout.Button(_categoryNames[i]))
+                _currentIdx = i;
+        }
+        GUI.enabled = true;
+
+        GUILayout.EndVertical();
+
+        GUILayout.BeginHorizontal();
+        _scrollValue = GUILayout.BeginScrollView(_scrollValue);
+        for (int i = 0; i < _categories[_categoryNames[_currentIdx]].Count; ++i)
+        {
+            int idx = _categories[_categoryNames[_currentIdx]][i];
+            RepoData val = _repoData[idx];
 
             GUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(val.name, EditorStyles.boldLabel);
 
+            Rect iconeRect = GUILayoutUtility.GetRect(64, 64);
+            if(val.icone != null)
+                GUI.DrawTexture(iconeRect, val.icone, ScaleMode.ScaleToFit);
+
+            GUILayout.BeginVertical();
+            GUILayout.BeginHorizontal();
             if (val.currentDownLoadRequest == null)
             {
                 if (GUILayout.Button("Import", GUILayout.Width(64)))
                 {
-                    ImportRepo(i);
+                    ImportRepo(idx);
                 }
             }
             else
@@ -117,12 +156,71 @@ public class GithubLister : EditorWindow
 
                 Repaint();
             }
-            GUILayout.EndHorizontal();
 
+            EditorGUILayout.LabelField(val.name, EditorStyles.boldLabel);
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
             EditorGUILayout.LabelField(val.description);
 
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(8);
+
+            Rect r = GUILayoutUtility.GetLastRect();
+
+            Handles.DrawLine(new Vector3(0, r.yMax), new Vector3(position.width, r.yMax));
             GUILayout.Space(8);
         }
+
+        GUILayout.EndScrollView();
+
+        GUILayout.EndVertical();
+
+        GUILayout.EndHorizontal();
+
+        Handles.color = c;
+    }
+
+    void FindRepoData()
+    {
+        if (!File.Exists(cacheFilePath))
+        {
+            if (File.Exists(Application.dataPath + "/../GithubDownloaderCache.json"))
+            {//we are on a test installation, where the file was generated locally, just copy it over
+                File.Copy(Application.dataPath + "/../GithubDownloaderCache.json", cacheFilePath);
+                DeserializeRepoData();
+            }
+            else
+                DownloadRepoList();
+        }
+        else
+        {
+            if ((System.DateTime.Now - File.GetCreationTime(cacheFilePath)).TotalDays > 1)
+            {//download it if we have a library older than a day
+                DownloadRepoList();
+            }
+            else
+                DeserializeRepoData();
+        }
+    }
+
+    void DownloadRepoList()
+    {
+        Request repoListDl = new Request();
+        repoListDl.request = UnityWebRequest.Get("https://api.github.com/repos/UnityGuillaume/UnityGithubDownload/contents/GithubDownloaderCache.json");
+        repoListDl.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
+
+        repoListDl.callback = RepoListDownloaded;
+        repoListDl.request.Send();
+
+        pendingRequests.Add(repoListDl);
+    }
+
+    void RepoListDownloaded(Request req)
+    {
+        File.WriteAllText(cacheFilePath, req.request.downloadHandler.text);
     }
 
     void ImportRepo(int index)
@@ -211,7 +309,8 @@ public class GithubLister : EditorWindow
             return;
         }
 
-        var data = JSON.Parse(File.ReadAllText(cacheFilePath));
+        string strData = File.ReadAllText(cacheFilePath);
+        var data = JSON.Parse(strData);
 
         foreach(var c in data.Children)
         {
@@ -224,6 +323,28 @@ public class GithubLister : EditorWindow
                     repData.name = a[i]["name"];
                     repData.description = a[i]["desc"];
                     repData.archiveURL = a[i]["download"];
+                    repData.category = a[i]["category"];
+
+                    _categories["all"].Add(_repoData.Count);
+
+                    if(repData.category != "")
+                    {
+                        if (!_categories.ContainsKey(repData.category))
+                        {
+                            _categories[repData.category] = new List<int>();
+                            _categoryNames.Add(repData.category);
+                        }
+
+                        _categories[repData.category].Add(_repoData.Count);
+                    }
+
+                    if (a[i]["icone"] == "")
+                        repData.icone = null;
+                    else
+                    {
+                        repData.icone = new Texture2D(0, 0);
+                        repData.icone.LoadImage(System.Convert.FromBase64String(a[i]["icone"]));
+                    }
 
                     _repoData.Add(repData);
                 }
