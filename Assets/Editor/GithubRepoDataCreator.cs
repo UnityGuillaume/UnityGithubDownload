@@ -33,9 +33,15 @@ public class GithubRepoDataCreator : EditorWindow
         public Request currentDownLoadRequest = null;
     }
 
+    public class RepoListInfo
+    {
+        public string address;
+        public string iconePath;
+        public string category;
+    }
 
     protected List<Request> _pendingRequests = new List<Request>();
-    protected List<string> _reposList = new List<string>();
+    protected Dictionary<string, RepoListInfo> _reposList = new Dictionary<string, RepoListInfo>();
     protected Dictionary<string, RepoData> _reposData = new Dictionary<string, RepoData>();
 
     protected string _cacheFilePath = "";
@@ -56,16 +62,19 @@ public class GithubRepoDataCreator : EditorWindow
 
         _cacheFilePath = Application.dataPath + "/../GithubDownloaderCache.json";
 
-        _reposList = new List<string>();
+        _reposList = new Dictionary<string, RepoListInfo>();
 
-        string[] repolistText = File.ReadAllText(Application.dataPath + "/ReposList.txt").Split(new string[] { "\r\n", "\n" }, System.StringSplitOptions.None);
-        for(int i = 0; i < repolistText.Length; ++i)
+        var repoListData = JSON.Parse(File.ReadAllText(Application.dataPath + "/Repositories.json"));
+        var repoArray = repoListData["repos"].AsArray;
+
+        for(int i =0; i < repoArray.Count; ++i)
         {
-            if (repolistText[i] == "")
-                continue;
+            RepoListInfo info = new RepoListInfo();
+            info.address = ((JSONString)repoArray[i]["url"]);
+            info.category = repoArray[i]["category"] == null ? "" : ((JSONString)repoArray[i]["category"]);
+            info.iconePath = repoArray[i]["icone"] == null ? "" : ((JSONString)repoArray[i]["icone"]);
 
-            Debug.Log("Retrieving data from " + repolistText[i]);
-            _reposList.Add(repolistText[i]);
+            _reposList.Add(info.address, info);
         }
 
         if(File.Exists(Application.dataPath + "/../login.txt"))
@@ -74,11 +83,11 @@ public class GithubRepoDataCreator : EditorWindow
             Debug.Log("found id will use that " + _id);
         }
 
-        for (int i = 0; i < _reposList.Count; ++i)
+        foreach(var keypair in _reposList)
         {
             Request req = new Request();
-            req.targetAddress = _reposList[i];
-            req.request = UnityWebRequest.Get("https://api.github.com/repos/" + _reposList[i]);
+            req.targetAddress = keypair.Key;
+            req.request = UnityWebRequest.Get("https://api.github.com/repos/" + req.targetAddress);
 
             if(_id != null)
                 req.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
@@ -88,19 +97,35 @@ public class GithubRepoDataCreator : EditorWindow
 
             _pendingRequests.Add(req);
 
-            //try to retrieve package info if exist
-            req = new Request();
-            req.targetAddress = _reposList[i];
-            req.request = UnityWebRequest.Get("https://api.github.com/repos/" + _reposList[i] + "/contents/package.json");
-            req.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
-            req.callback = RetrievedPackageinfo;
+            if (keypair.Value.iconePath != "")
+            {
+                Request iconeDL = new Request();
+                iconeDL.targetAddress = req.targetAddress;
+                iconeDL.request = UnityWebRequest.Get("https://api.github.com/repos/" + req.targetAddress + "/contents/" + keypair.Value.iconePath);
+                iconeDL.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
 
-            if (_id != null)
-                req.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
+                if (_id != null)
+                    iconeDL.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
 
-            req.request.Send();
+                iconeDL.callback = RetrievedIconeData;
+                iconeDL.request.Send();
 
-            _pendingRequests.Add(req);
+                _pendingRequests.Add(iconeDL);
+            }
+
+            ////try to retrieve package info if exist
+            //req = new Request();
+            //req.targetAddress = _reposList[i];
+            //req.request = UnityWebRequest.Get("https://api.github.com/repos/" + _reposList[i] + "/contents/package.json");
+            //req.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
+            //req.callback = RetrievedPackageinfo;
+
+            //if (_id != null)
+            //    req.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
+
+            //req.request.Send();
+
+            //_pendingRequests.Add(req);
         }
 
         isLoading = true;
@@ -213,41 +238,43 @@ public class GithubRepoDataCreator : EditorWindow
         repoData.archiveURL = repoData.archiveURL.Replace("{archive_format}", "zipball");
         repoData.archiveURL = repoData.archiveURL.Replace("{/ref}", "");
 
+        repoData.category = _reposList[req.targetAddress].category;
+
         repoData.etag = req.request.GetResponseHeader("ETag");
     }
 
-    public void RetrievedPackageinfo(Request req)
-    {
-        if (req.request.responseCode == 404)
-            return;
+    //public void RetrievedPackageinfo(Request req)
+    //{
+    //    if (req.request.responseCode == 404)
+    //        return;
 
-        var data = JSON.Parse(req.request.downloadHandler.text);
+    //    var data = JSON.Parse(req.request.downloadHandler.text);
 
-        RepoData repoData = null;
-        if (!_reposData.TryGetValue(req.targetAddress, out repoData))
-        {
-            repoData = new RepoData();
-            _reposData[req.targetAddress] = repoData;
-        }
+    //    RepoData repoData = null;
+    //    if (!_reposData.TryGetValue(req.targetAddress, out repoData))
+    //    {
+    //        repoData = new RepoData();
+    //        _reposData[req.targetAddress] = repoData;
+    //    }
 
-        repoData.category = data["category"] == null ? "" : ((JSONString)data["category"]);
+    //    repoData.category = data["category"] == null ? "" : ((JSONString)data["category"]);
 
-        if (data["icone"] != null && ((JSONString)data["icone"]) != "")
-        {
-            Request iconeDL = new Request();
-            iconeDL.targetAddress = req.targetAddress;
-            iconeDL.request = UnityWebRequest.Get("https://api.github.com/repos/" + req.targetAddress + "/contents/" + data["icone"]);
-            iconeDL.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
+    //    if (data["icone"] != null && ((JSONString)data["icone"]) != "")
+    //    {
+    //        Request iconeDL = new Request();
+    //        iconeDL.targetAddress = req.targetAddress;
+    //        iconeDL.request = UnityWebRequest.Get("https://api.github.com/repos/" + req.targetAddress + "/contents/" + data["icone"]);
+    //        iconeDL.request.SetRequestHeader("accept", "accept:application/vnd.github.v3.raw");
 
-            if (_id != null)
-                iconeDL.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
+    //        if (_id != null)
+    //            iconeDL.request.SetRequestHeader("AUTHORIZATION", authenticate(_id));
 
-            iconeDL.callback = RetrievedIconeData;
-            iconeDL.request.Send();
+    //        iconeDL.callback = RetrievedIconeData;
+    //        iconeDL.request.Send();
 
-            _pendingRequests.Add(iconeDL);
-        }
-    }
+    //        _pendingRequests.Add(iconeDL);
+    //    }
+    //}
 
     void RetrievedIconeData(Request req)
     {

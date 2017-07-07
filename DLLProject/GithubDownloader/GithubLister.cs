@@ -197,7 +197,7 @@ public class GithubLister : EditorWindow
         }
         else
         {
-            if ((System.DateTime.Now - File.GetLastAccessTime(cacheFilePath)).TotalDays > 1)
+            if ((System.DateTime.Now - File.GetCreationTime(cacheFilePath)).TotalDays > 1)
             {//download it if we have a library older than a day
                 DownloadRepoList();
             }

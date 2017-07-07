@@ -1,17 +1,31 @@
 {
     [
         {
-            "name" : "ScriptableRenderLoop",
-            "desc" : "Scriptable Render Loop",
-            "download" : "https://api.github.com/repos/Unity-Technologies/ScriptableRenderLoop/zipball",
-            "category" : "",
+            "name" : "ImporterRule",
+            "desc" : "",
+            "download" : "https://api.github.com/repos/UnityGuillaume/ImporterRule/zipball",
+            "category" : "Tools",
             "icone" : ""
         },
         {
             "name" : "NavMeshComponents",
             "desc" : "High Level API Components for Runtime NavMesh Building",
             "download" : "https://api.github.com/repos/Unity-Technologies/NavMeshComponents/zipball",
-            "category" : "",
+            "category" : "Extensions",
+            "icone" : ""
+        },
+        {
+            "name" : "ScriptableRenderLoop",
+            "desc" : "Scriptable Render Pipeline",
+            "download" : "https://api.github.com/repos/Unity-Technologies/ScriptableRenderLoop/zipball",
+            "category" : "Extensions",
+            "icone" : ""
+        },
+        {
+            "name" : "DeLightingTool",
+            "desc" : "De-Lighting tool",
+            "download" : "https://api.github.com/repos/Unity-Technologies/DeLightingTool/zipball",
+            "category" : "Tools",
             "icone" : ""
         },
         {
@@ -20,27 +34,6 @@
             "download" : "https://api.github.com/repos/UnityGuillaume/Prototypes/zipball",
             "category" : "Tools",
             "icone" : "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"
-        },
-        {
-            "name" : "ImporterRule",
-            "desc" : "",
-            "download" : "https://api.github.com/repos/UnityGuillaume/ImporterRule/zipball",
-            "category" : "",
-            "icone" : ""
-        },
-        {
-            "name" : "DeLightingTool",
-            "desc" : "De-Lighting tool",
-            "download" : "https://api.github.com/repos/Unity-Technologies/DeLightingTool/zipball",
-            "category" : "",
-            "icone" : ""
-        },
-        {
-            "name" : "PackageManager",
-            "desc" : "",
-            "download" : "https://api.github.com/repos/UnityGuillaume/PackageManager/zipball",
-            "category" : "",
-            "icone" : ""
         }
     ]
 }

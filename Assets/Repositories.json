@@ -1,0 +1,38 @@
+{
+  "repos" : [
+    {
+      "url" : "Unity-Technologies/GameKit-2DPlatformer",
+      "category" : "Examples"
+    },
+    {
+      "url" : "Unity-Technologies/ScriptableRenderLoop",
+      "category" : "Extensions"
+    },
+    {
+      "url" : "Unity-Technologies/VRSamples",
+      "category" : "Examples"
+    },
+    {
+      "url" : "Unity-Technologies/2DRoguelike",
+      "category" : "Examples",
+      "icone" : "Assets/TutorialInfo/Icons.png"
+    },
+    {
+      "url" : "Unity-Technologies/DeLightingTool",
+      "category" : "Tools"
+    },
+    {
+      "url" : "Unity-Technologies/NavMeshComponents",
+      "category" : "Extensions"
+    },
+    {
+      "url" : "UnityGuillaume/Prototypes",
+      "category" : "Tools",
+      "icone" : "icone.png"
+    },
+    {
+      "url" : "UnityGuillaume/ImporterRule",
+      "category" : "Tools"
+    }
+  ]
+}
